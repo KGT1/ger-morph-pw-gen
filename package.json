@@ -1,12 +1,21 @@
 {
-  "name": "browser_dict",
+  "name": "ger-morph-pw-gen",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "German morphological password generator that creates secure passwords using adjective-noun combinations",
+  "main": "GermanMorphDict.js",
+  "types": "GermanMorphDict.d.ts",
   "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
     "test": "jest"
   },
-  "keywords": [],
+  "keywords": [
+    "password",
+    "generator",
+    "german",
+    "morphology",
+    "security"
+  ],
   "author": "",
   "license": "ISC",
   "devDependencies": {
