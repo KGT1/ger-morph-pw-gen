@@ -33,26 +33,34 @@ export class PasswordGenerator {
             entry.analysis.attributes.includes('sing')
         );
 
-        // Get adjectives (strong, nominative, singular, positive)
+        // Get adjectives (nominative, singular, positive)
         const adjectives = await this.dict.filterWords(undefined, [WordCategory.ADJECTIVE]);
+        
+        // Filter base adjectives by case and number
         const baseFilteredAdj = adjectives.filter(entry =>
             entry.analysis.attributes.includes('pos') &&
             entry.analysis.attributes.includes('nom') &&
-            entry.analysis.attributes.includes('sing') &&
-            entry.analysis.attributes.includes('strong')
+            entry.analysis.attributes.includes('sing')
         );
 
-        // Group by gender
+        // Group nouns by gender
         const nounsByGender = {
             masc: nomSingNouns.filter(n => n.analysis.attributes.includes('masc')),
             fem: nomSingNouns.filter(n => n.analysis.attributes.includes('fem')),
             neut: nomSingNouns.filter(n => n.analysis.attributes.includes('neut'))
         };
 
+        // For adjectives, require strong declension for masculine and neuter
         const adjByGender = {
-            masc: baseFilteredAdj.filter(a => a.analysis.attributes.includes('masc')),
+            masc: baseFilteredAdj.filter(a => 
+                a.analysis.attributes.includes('masc') &&
+                a.analysis.attributes.includes('strong')
+            ),
             fem: baseFilteredAdj.filter(a => a.analysis.attributes.includes('fem')),
-            neut: baseFilteredAdj.filter(a => a.analysis.attributes.includes('neut'))
+            neut: baseFilteredAdj.filter(a => 
+                a.analysis.attributes.includes('neut') &&
+                a.analysis.attributes.includes('strong')
+            )
         };
 
         return { adjByGender, nounsByGender };
