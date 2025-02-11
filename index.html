@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>German Password Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        input[type="url"] {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        #passwords {
+            margin-top: 20px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .success { background-color: #e8f5e9; color: #2e7d32; }
+        .error { background-color: #ffebee; color: #c62828; }
+        .loading { background-color: #e3f2fd; color: #1565c0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>German Password Generator</h1>
+        <div class="input-group">
+            <label for="dictUrl">Dictionary URL:</label>
+            <input type="url" id="dictUrl" 
+                   value="data:text/plain;base64,CldldHRlcgpXZXR0ZXIgTk4sbmV1dCxub20sc2luZwpXZXR0ZXIgTk4sbWFzYyxub20sc2luZwoKV2llc2UKV2llc2UgTk4sZmVtLG5vbSxzaW5nCgpXaW5kCldpbmQgTk4sbWFzYyxub20sc2luZwoKV29sa2UKV29sa2UgTk4sZmVtLG5vbSxzaW5nCgpXdXJtCld1cm0gTk4sbWFzYyxub20sc2luZwoKV3Vyc3QKV3Vyc3QgTk4sZmVtLG5vbSxzaW5nCgpXw7xyZmVsClfDvHJmZWwgTk4sbWFzYyxub20sc2luZwoKWmFobgpaYWhuIE5OLG1hc2Msbm9tLHNpbmcKClphbmdlClphbmdlIE5OLGZlbSxub20sc2luZwoKWmF1bgpaYXVuIE5OLG1hc2Msbm9tLHNpbmcKClplYnJhClplYnJhIE5OLG5ldXQsbm9tLHNpbmcKClplbHQKWmVsdCBOTixuZXV0LG5vbSxzaW5nClplbHQgTk4sbWFzYyxub20sc2luZwoKWmltbWVyCkppbW1lciBOTixuZXV0LG5vbSxzaW5nCgpadWNrZXIKWnVja2VyIE5OLG1hc2Msbm9tLHNpbmcKClp3ZWlnClp3ZWlnIE5OLG1hc2Msbm9tLHNpbmcKCmFrdGl2ZXIKYWt0aXYgQURKLG1hc2Msbm9tLHNpbmcscG9zLHN0cm9uZwoKYWt0aXZlcmVyCmFrdGl2IEFESixtYXNjLG5vbSxzaW5nLGNvbXAsc3Ryb25nCgpha3RpdmVyZXMKYWt0aXYgQURKLG5ldXQsbm9tLHNpbmcsY29tcCxzdHJvbmcKCmFrdGl2ZXMKYWt0aXYgQURKLG5ldXQsbm9tLHNpbmcscG9zLHN0cm9uZwoKYWt0aXZzdGVyCmFrdGl2IEFESixtYXNjLG5vbSxzaW5nLHN1cCxzdHJvbmcKCmFrdGl2c3RlcwFha3RpdiBBREosbmV1dCxub20sc2luZyxzdXAsc3Ryb25nCgpiZWthbm50ZXIKYmVrYW5udCBBREosbWFzYyxub20sc2luZyxwb3Msc3Ryb25nCgpiZWthbm50ZXJlcgpiZWthbm50IEFESixtYXNjLG5vbSxzaW5nLGNvbXAsc3Ryb25nCgpiZWthbm50ZXJlcwpiZWthbm50IEFESixuZXV0LG5vbSxzaW5nLGNvbXAsc3Ryb25nCgpiZWthbm50ZXMKYmVrYW5udCBBREosbmV1dCxub20sc2luZyxwb3Msc3Ryb25nCgpiZWthbm50ZXN0ZXIKYmVrYW5udCBBREosbWFzYyxub20sc2luZyxzdXAsc3Ryb25nCgpiZWthbm50ZXN0ZXMKYmVrYW5udCBBREosbmV1dCxub20sc2luZyxzdXAsc3Ryb25nCgpiZWxpZWJ0ZXIKYmVsaWVidCBBREosbWFzYyxub20sc2luZyxwb3Msc3Ryb25nCgpiZWxpZWJ0ZXJlcgpiZWxpZWJ0IEFESixtYXNjLG5vbSxzaW5nLGNvbXAsc3Ryb25nCgpiZWxpZWJ0ZXJlcwpiZWxpZWJ0IEFESixuZXV0LG5vbSxzaW5nLGNvbXAsc3Ryb25nCgpiZWxpZWJ0ZXMKYmVsaWVidCBBREosbmV1dCxub20sc2luZyxwb3Msc3Ryb25nCgpiZWxpZWJ0ZXN0ZXIKYmVsaWVidCBBREosbWFzYyxub20sc2luZyxzdXAsc3Ryb25nCgpiZWxpZWJ0ZXN0ZXMKYmVsaWVidCBBREosbmV1dCxub20sc2luZyxzdXAsc3Ryb25nCgpiZXJlaXRlcgpiZXJlaXQgQURKLG1hc2Msbm9tLHNpbmcscG9zLHN0cm9uZwoKYmVyZWl0ZXMKYmVyZWl0IEFESixuZXV0LG5vbSxzaW5nLHBvcyxzdHJvbmcKCmJlcsO8aG10ZXIKYmVyw7xobXQgQURKLG1hc2Msbm9tLHNpbmcscG9zLHN0cm9uZw=="
+                   placeholder="Enter URL to dictionary file">
+        </div>
+        <button id="loadBtn" onclick="loadDictionary()">Load Dictionary & Generate Passwords</button>
+        <div id="status"></div>
+        <div id="passwords"></div>
+    </div>
+
+    <script type="module">
+        import { GermanMorphDict, WordCategory } from './GermanMorphDict.js';
+
+        window.loadDictionary = async function() {
+            const urlInput = document.getElementById('dictUrl');
+            const loadBtn = document.getElementById('loadBtn');
+            const statusDiv = document.getElementById('status');
+            const passwordsDiv = document.getElementById('passwords');
+
+            loadBtn.disabled = true;
+            statusDiv.className = 'loading';
+            statusDiv.textContent = 'Loading dictionary...';
+            passwordsDiv.textContent = '';
+
+            try {
+                const response = await fetch(urlInput.value);
+                if (!response.ok) throw new Error('Failed to fetch dictionary');
+
+                const dict = new GermanMorphDict(response, (progress) => {
+                    statusDiv.textContent = `Loading dictionary: ${progress.percentage.toFixed(1)}%`;
+                });
+
+                await dict.waitForReady();
+                statusDiv.textContent = 'Dictionary loaded. Filtering words...';
+
+                // Get nouns (nominative singular)
+                const nouns = await dict.filterWords(undefined, [WordCategory.NOUN]);
+                console.log(`Found ${nouns.length} total nouns`);
+                
+                const nomSingNouns = nouns.filter(entry => 
+                    entry.analysis.attributes.includes('nom') && 
+                    entry.analysis.attributes.includes('sing')
+                );
+                console.log(`Found ${nomSingNouns.length} nominative singular nouns`);
+
+                // Get adjectives (strong, nominative, singular, positive)
+                const adjectives = await dict.filterWords(undefined, [WordCategory.ADJECTIVE]);
+                console.log(`Found ${adjectives.length} total adjectives`);
+                
+                // Group nouns by gender
+                const nounsByGender = {
+                    masc: nomSingNouns.filter(n => n.analysis.attributes.includes('masc')),
+                    fem: nomSingNouns.filter(n => n.analysis.attributes.includes('fem')),
+                    neut: nomSingNouns.filter(n => n.analysis.attributes.includes('neut'))
+                };
+                console.log('Nouns by gender:', {
+                    masculine: nounsByGender.masc.length,
+                    feminine: nounsByGender.fem.length,
+                    neuter: nounsByGender.neut.length
+                });
+
+                // Filter adjectives by base attributes
+                const baseFilteredAdj = adjectives.filter(entry =>
+                    entry.analysis.attributes.includes('pos') &&
+                    entry.analysis.attributes.includes('nom') &&
+                    entry.analysis.attributes.includes('sing') &&
+                    entry.analysis.attributes.includes('strong')
+                );
+
+                // Group adjectives by gender
+                const adjByGender = {
+                    masc: baseFilteredAdj.filter(a => a.analysis.attributes.includes('masc')),
+                    fem: baseFilteredAdj.filter(a => a.analysis.attributes.includes('fem')),
+                    neut: baseFilteredAdj.filter(a => a.analysis.attributes.includes('neut'))
+                };
+                console.log('Adjectives by gender:', {
+                    masculine: adjByGender.masc.length,
+                    feminine: adjByGender.fem.length,
+                    neuter: adjByGender.neut.length
+                });
+
+                // Generate passwords
+                const passwords = [];
+                const usedCombos = new Set();
+
+                // Helper function to get random item from array
+                const getRandomItem = arr => arr[Math.floor(Math.random() * arr.length)];
+
+                // Try to generate up to 10 unique passwords
+                for (let i = 0; i < 30 && passwords.length < 10; i++) {
+                    // Randomly select gender
+                    const gender = getRandomItem(['masc', 'fem', 'neut']);
+                    
+                    // Get matching adjective and noun for gender
+                    const adjectives = adjByGender[gender];
+                    const nouns = nounsByGender[gender];
+                    
+                    if (!adjectives?.length || !nouns?.length) continue;
+                    
+                    const adj = getRandomItem(adjectives);
+                    const noun = getRandomItem(nouns);
+                    
+                    if (!adj || !noun) continue;
+                    
+                    const combo = `${adj.word}${noun.word}`;
+                    if (!usedCombos.has(combo)) {
+                        usedCombos.add(combo);
+                        passwords.push(combo);
+                    }
+                }
+
+                statusDiv.className = 'success';
+                statusDiv.textContent = 'Generated passwords successfully!';
+                passwordsDiv.textContent = passwords.join('\n');
+
+            } catch (error) {
+                statusDiv.className = 'error';
+                statusDiv.textContent = `Error: ${error.message}`;
+            } finally {
+                loadBtn.disabled = false;
+            }
+        };
+    </script>
+</body>
+</html>
