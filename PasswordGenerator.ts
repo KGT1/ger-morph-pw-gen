@@ -8,7 +8,7 @@ export enum PasswordMode {
 export class PasswordGenerator {
     private dict: GermanMorphDict;
     private readonly SPECIAL_CHARS = ['$', '!', '+'];
-    private readonly FILTERED_CHARS = new Set(['Ä', 'Ö', 'Ü', 'ẞ', 'y', 'z']);
+    private readonly FILTERED_CHARS = new Set(['Ä', 'ä', 'Ö', 'ö', 'Ü', 'ü', 'ẞ', 'ß', 'Y', 'y', 'Z', 'z']);
 
     constructor(dict: GermanMorphDict) {
         this.dict = dict;
@@ -79,12 +79,17 @@ export class PasswordGenerator {
     }
 
     private replaceSpecialChar(word: string): string {
+        const charMap: { [key: string]: string } = {
+            'S': '$', 's': '$',
+            'I': '!', 'i': '!',
+            'T': '+', 't': '+'
+        };
+        
         const matches = word.match(/[SsIiTt]/g);
         if (!matches) return word;
         
         const charToReplace = this.getRandomItem(matches);
-        const specialChar = this.getRandomItem(this.SPECIAL_CHARS);
-        return word.replace(charToReplace, specialChar);
+        return word.replace(charToReplace, charMap[charToReplace]);
     }
 
     async generatePassword(mode: PasswordMode): Promise<string> {
