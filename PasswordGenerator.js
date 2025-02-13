@@ -18,9 +18,9 @@ const SPECIAL_CHAR_MAP = {
     'T': '+', 't': '+'
 };
 /**
- * Characters that should be filtered out from generated passwords
+ * Characters that should be filtered out from strong passwords
  */
-const FILTERED_CHARS = new Set([
+const STRONG_MODE_FILTERED_CHARS = new Set([
     'Ä', 'ä', 'Ö', 'ö', 'Ü', 'ü', 'ẞ', 'ß', 'Y', 'y', 'Z', 'z'
 ]);
 /**
@@ -94,13 +94,25 @@ export class PasswordGenerator {
     filterStrongWords(words) {
         return words.filter(entry => {
             const word = entry.word;
-            // Filter out words containing filtered characters
-            if ([...FILTERED_CHARS].some(char => word.includes(char))) {
+            // Filter out words with special characters in strong mode
+            if ([...STRONG_MODE_FILTERED_CHARS].some(char => word.includes(char))) {
                 return false;
             }
             // Must contain at least one character that can be replaced with a special character
             return Object.keys(SPECIAL_CHAR_MAP).some(char => word.includes(char));
         });
+    }
+    /**
+     * Gets filtered words based on the password mode
+     * @param words - Array of word entries to filter
+     * @param mode - Password generation mode
+     * @returns Filtered array of word entries
+     */
+    getWordsByMode(words, mode) {
+        if (mode === PasswordMode.STRONG) {
+            return this.filterStrongWords(words);
+        }
+        return [...words];
     }
     /**
      * Replaces a random eligible character with its special character equivalent
@@ -131,12 +143,10 @@ export class PasswordGenerator {
         if (!adjectives?.length || !nouns?.length) {
             throw new Error(`No valid words found for gender: ${gender}`);
         }
-        if (mode === PasswordMode.STRONG) {
-            adjectives = this.filterStrongWords(adjectives);
-            nouns = this.filterStrongWords(nouns);
-            if (!adjectives.length || !nouns.length) {
-                throw new Error(`No valid strong words found for gender: ${gender}`);
-            }
+        adjectives = this.getWordsByMode(adjectives, mode);
+        nouns = this.getWordsByMode(nouns, mode);
+        if (!adjectives.length || !nouns.length) {
+            throw new Error(`No valid words found for gender: ${gender} in ${mode} mode`);
         }
         const adj = this.getRandomItem(adjectives);
         const noun = this.getRandomItem(nouns);

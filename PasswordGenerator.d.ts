@@ -43,6 +43,13 @@ export declare class PasswordGenerator {
      */
     private filterStrongWords;
     /**
+     * Gets filtered words based on the password mode
+     * @param words - Array of word entries to filter
+     * @param mode - Password generation mode
+     * @returns Filtered array of word entries
+     */
+    private getWordsByMode;
+    /**
      * Replaces a random eligible character with its special character equivalent
      * @param word - Word to process
      * @returns Word with one special character substitution
