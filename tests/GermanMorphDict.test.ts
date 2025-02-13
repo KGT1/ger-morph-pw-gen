@@ -167,8 +167,21 @@ describe('GermanMorphDict', () => {
         // Zelt has two entries with different genders
         const results = await dict.filterWords(/Zelt/);
         expect(results.length).toBe(2);
-        expect(results[0].word).toBe('Zelt');
-        expect(results[1].word).toBe('Zelt');
+        
+        // Since we expect exactly 2 results, we can safely assert their existence
+        const firstResult = results[0];
+        const secondResult = results[1];
+        
+        expect(firstResult).toBeDefined();
+        expect(secondResult).toBeDefined();
+        
+        if (!firstResult || !secondResult) {
+            throw new Error('Expected two results for Zelt');
+        }
+        
+        expect(firstResult.word).toBe('Zelt');
+        expect(secondResult.word).toBe('Zelt');
+        
         // Verify we have both gender variations
         const genders = results.map(r => r.analysis.attributes[0]);
         expect(genders).toContain('neut');

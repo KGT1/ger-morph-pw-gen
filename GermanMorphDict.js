@@ -1,12 +1,6 @@
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
+/**
+ * Enumeration of possible word categories in German morphology
+ */
 export var WordCategory;
 (function (WordCategory) {
     WordCategory["VERB"] = "V";
@@ -36,64 +30,72 @@ export var WordCategory;
     WordCategory["WH_PRONOUN"] = "WPRO";
     WordCategory["ZU"] = "ZU";
 })(WordCategory || (WordCategory = {}));
+/**
+ * German morphological dictionary that provides word analysis and filtering capabilities
+ */
 export class GermanMorphDict {
     /**
-     * Returns a promise that resolves when the dictionary is fully loaded
+     * Creates a new German morphological dictionary instance
+     * @param dictData - Dictionary data as string or Response object
+     * @param progressCallback - Optional callback for loading progress updates
      */
-    waitForReady() {
-        return __awaiter(this, void 0, void 0, function* () {
-            yield this.initialized;
-        });
-    }
     constructor(dictData, progressCallback) {
         this.dictionary = new Map();
         this.totalEntries = 0;
-        this.initialized = (() => __awaiter(this, void 0, void 0, function* () {
+        this.initialized = (async () => {
             if (dictData instanceof Response) {
-                yield this.loadDictFromResponse(dictData, progressCallback);
+                await this.loadDictFromResponse(dictData, progressCallback);
             }
             else {
                 this.loadDict(dictData, progressCallback);
             }
-        }))();
+        })();
     }
-    loadDictFromResponse(response, progressCallback) {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (!response.body) {
-                throw new Error('Response body is null');
-            }
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let totalBytes = +(response.headers.get('content-length') || 0);
-            let loadedBytes = 0;
+    /**
+     * Waits for the dictionary to be fully loaded
+     * @returns Promise that resolves when dictionary is ready
+     */
+    async waitForReady() {
+        await this.initialized;
+    }
+    /**
+     * Loads dictionary data from a Response object (e.g., fetch response)
+     * @param response - Response object containing dictionary data
+     * @param progressCallback - Optional callback for loading progress updates
+     * @throws Error if response body is null or data is invalid
+     */
+    async loadDictFromResponse(response, progressCallback) {
+        if (!response.body) {
+            throw new Error('Response body is null');
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        const totalBytes = Number(response.headers.get('content-length') || 0);
+        let loadedBytes = 0;
+        try {
             while (true) {
-                const { done, value } = yield reader.read();
+                const { done, value } = await reader.read();
                 if (done) {
-                    // Process any remaining data in buffer
                     this.processChunk(buffer, true);
                     break;
                 }
                 loadedBytes += value.length;
                 buffer += decoder.decode(value, { stream: true });
-                // Find last newline character
                 const lastNewline = buffer.lastIndexOf('\n');
                 if (lastNewline !== -1) {
-                    // Process complete lines
                     const completeLines = buffer.slice(0, lastNewline);
                     buffer = buffer.slice(lastNewline + 1);
                     this.processChunk(completeLines, false);
                 }
-                // Report progress
                 if (progressCallback && totalBytes > 0) {
                     progressCallback({
-                        totalLines: totalBytes, // Using bytes as proxy for lines
+                        totalLines: totalBytes,
                         processedLines: loadedBytes,
                         percentage: (loadedBytes / totalBytes) * 100
                     });
                 }
             }
-            // Final progress update
             if (progressCallback) {
                 progressCallback({
                     totalLines: totalBytes,
@@ -101,18 +103,32 @@ export class GermanMorphDict {
                     percentage: 100
                 });
             }
-        });
+        }
+        catch (error) {
+            throw new Error(`Failed to load dictionary: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
     }
+    /**
+     * Loads dictionary data from a string
+     * @param dictData - String containing dictionary data
+     * @param progressCallback - Optional callback for loading progress updates
+     */
     loadDict(dictData, progressCallback) {
         this.processChunk(dictData, true);
+        const totalLines = dictData.split('\n').length;
         if (progressCallback) {
             progressCallback({
-                totalLines: dictData.split('\n').length,
-                processedLines: dictData.split('\n').length,
+                totalLines,
+                processedLines: totalLines,
                 percentage: 100
             });
         }
     }
+    /**
+     * Processes a chunk of dictionary data
+     * @param chunk - String chunk of dictionary data
+     * @param isLastChunk - Whether this is the final chunk
+     */
     processChunk(chunk, isLastChunk) {
         const lines = chunk.split('\n');
         let currentWord = null;
@@ -127,25 +143,37 @@ export class GermanMorphDict {
                 currentAnalyses = [];
             }
             else {
-                // This is an analysis line
                 const parts = trimmedLine.split(" ");
                 if (parts.length < 2)
-                    continue; // Skip invalid lines
-                const analysisParts = parts[1].split(",");
+                    continue;
+                const lemma = parts[0];
+                if (!lemma)
+                    continue;
+                const analysis = parts[1];
+                if (!analysis)
+                    continue;
+                const analysisParts = analysis.split(",");
+                if (!analysisParts.length)
+                    continue;
                 const category = analysisParts[0];
-                const attributes = analysisParts.slice(1);
+                if (!Object.values(WordCategory).includes(category))
+                    continue;
                 currentAnalyses.push({
-                    lemma: parts[0],
-                    category,
-                    attributes
+                    lemma,
+                    category: category,
+                    attributes: analysisParts.slice(1)
                 });
             }
         }
-        // Add the last word if it exists and this is the last chunk
         if (isLastChunk) {
             this.addCurrentWordToDictionary(currentWord, currentAnalyses);
         }
     }
+    /**
+     * Adds a word and its analyses to the dictionary
+     * @param currentWord - Word to add
+     * @param currentAnalyses - Array of morphological analyses for the word
+     */
     addCurrentWordToDictionary(currentWord, currentAnalyses) {
         if (currentWord && currentAnalyses.length > 0) {
             const entries = currentAnalyses.map(analysis => ({
@@ -156,8 +184,13 @@ export class GermanMorphDict {
             this.totalEntries += entries.length;
         }
     }
+    /**
+     * Generator function that yields filtered word entries
+     * @param regex - Optional regex pattern to filter words
+     * @param categories - Optional array of word categories to filter by
+     * @yields WordEntry objects matching the filter criteria
+     */
     *filterWordsGenerator(regex, categories) {
-        let processedWords = 0;
         for (const [word, entries] of this.dictionary) {
             if (regex && !regex.test(word))
                 continue;
@@ -168,47 +201,56 @@ export class GermanMorphDict {
             }
         }
     }
-    filterWords(regex, categories, progressCallback) {
-        return __awaiter(this, void 0, void 0, function* () {
-            yield this.initialized;
-            const result = [];
-            const generator = this.filterWordsGenerator(regex, categories);
-            let processedEntries = 0;
-            for (const entry of generator) {
-                result.push(entry);
-                processedEntries++;
-                if (progressCallback && processedEntries % 1000 === 0) {
-                    progressCallback({
-                        processedEntries,
-                        totalEntries: this.totalEntries,
-                        percentage: (processedEntries / this.totalEntries) * 100
-                    });
-                }
-            }
-            // Final progress update
-            if (progressCallback) {
+    /**
+     * Filters dictionary entries based on regex pattern and/or word categories
+     * @param regex - Optional regex pattern to filter words
+     * @param categories - Optional array of word categories to filter by
+     * @param progressCallback - Optional callback for filtering progress updates
+     * @returns Promise resolving to array of filtered word entries
+     */
+    async filterWords(regex, categories, progressCallback) {
+        await this.initialized;
+        const result = [];
+        const generator = this.filterWordsGenerator(regex, categories);
+        let processedEntries = 0;
+        for (const entry of generator) {
+            result.push(entry);
+            processedEntries++;
+            if (progressCallback && processedEntries % 1000 === 0) {
                 progressCallback({
-                    processedEntries: this.totalEntries,
+                    processedEntries,
                     totalEntries: this.totalEntries,
-                    percentage: 100
+                    percentage: (processedEntries / this.totalEntries) * 100
                 });
             }
-            return result;
-        });
+        }
+        if (progressCallback) {
+            progressCallback({
+                processedEntries: this.totalEntries,
+                totalEntries: this.totalEntries,
+                percentage: 100
+            });
+        }
+        return result;
     }
-    combineFilters(regex, categories, progressCallback) {
-        return __awaiter(this, void 0, void 0, function* () {
-            return yield this.filterWords(regex, categories, progressCallback);
-        });
+    /**
+     * Alias for filterWords method
+     * @deprecated Use filterWords instead
+     */
+    async combineFilters(regex, categories, progressCallback) {
+        return this.filterWords(regex, categories, progressCallback);
     }
-    getDictionary() {
-        return __awaiter(this, void 0, void 0, function* () {
-            yield this.initialized;
-            const result = [];
-            for (const entries of this.dictionary.values()) {
-                result.push(...entries); // Include all analyses
-            }
-            return result;
-        });
+    /**
+     * Gets all entries in the dictionary
+     * @returns Promise resolving to array of all word entries
+     */
+    async getDictionary() {
+        await this.initialized;
+        const result = [];
+        for (const entries of this.dictionary.values()) {
+            result.push(...entries);
+        }
+        return result;
     }
 }
+//# sourceMappingURL=GermanMorphDict.js.map
