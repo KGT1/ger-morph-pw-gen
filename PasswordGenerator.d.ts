@@ -1,5 +1,5 @@
-import { GermanMorphDict } from './GermanMorphDict';
-import { RandomSource } from './Random';
+import { GermanMorphDict } from './GermanMorphDict.js';
+import { RandomSource } from './Random.js';
 /**
  * Password generation modes that determine the complexity and format of generated passwords
  */

@@ -1,4 +1,4 @@
-import { findLayoutUnsafeChars } from './LayoutSafety';
+import { findLayoutUnsafeChars } from './LayoutSafety.js';
 /**
  * Error thrown when wordlist data is invalid. Lists every problem found.
  */

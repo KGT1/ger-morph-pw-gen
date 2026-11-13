@@ -23,8 +23,9 @@ npm install github:KGT1/ger-morph-pw-gen
 ```
 
 Requirements: `globalThis.crypto.getRandomValues` (all modern browsers,
-Node.js 19+). The compiled files are ES modules with extensionless relative
-imports, intended for bundlers (esbuild, Vite, webpack, ...).
+Node.js 19+). The package is ESM-only and works directly in Node.js as well
+as in bundlers (esbuild, Vite, webpack, ...). Import from the package root or
+from a module path such as `ger-morph-pw-gen/SentenceGenerator`.
 
 ## Sentence passphrases
 

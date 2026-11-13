@@ -1,4 +1,4 @@
-import { findLayoutUnsafeChars } from './LayoutSafety';
+import { findLayoutUnsafeChars } from './LayoutSafety.js';
 
 /**
  * Grammatical gender of a noun: masculine, feminine or neuter

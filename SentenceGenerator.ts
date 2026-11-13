@@ -1,5 +1,5 @@
-import { cryptoRandomSource, randomInt, RandomSource } from './Random';
-import { declineAdjective, declineNoun, Wordlist, WordlistData } from './Wordlist';
+import { cryptoRandomSource, randomInt, RandomSource } from './Random.js';
+import { declineAdjective, declineNoun, Wordlist, WordlistData } from './Wordlist.js';
 
 /**
  * Separators allowed between the parts of a sentence passphrase.

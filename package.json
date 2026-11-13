@@ -4,6 +4,18 @@
   "description": "Memorable, keyboard-layout-safe German passphrases (e.g. flinkerFuchs.malt.leise.roteTomate.42!) with exact strength estimates",
   "main": "index.js",
   "types": "index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json",
+    "./*": {
+      "types": "./*.d.ts",
+      "default": "./*.js"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",

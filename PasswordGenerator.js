@@ -1,6 +1,6 @@
-import { WordCategory } from './GermanMorphDict';
-import { isLayoutSafeWord } from './LayoutSafety';
-import { cryptoRandomSource, randomChoice, randomInt } from './Random';
+import { WordCategory } from './GermanMorphDict.js';
+import { isLayoutSafeWord } from './LayoutSafety.js';
+import { cryptoRandomSource, randomChoice, randomInt } from './Random.js';
 /**
  * Password generation modes that determine the complexity and format of generated passwords
  */

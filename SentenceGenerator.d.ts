@@ -1,5 +1,5 @@
-import { RandomSource } from './Random';
-import { Wordlist, WordlistData } from './Wordlist';
+import { RandomSource } from './Random.js';
+import { Wordlist, WordlistData } from './Wordlist.js';
 /**
  * Separators allowed between the parts of a sentence passphrase.
  * All are typed identically on German QWERTZ and US QWERTY keyboards and none

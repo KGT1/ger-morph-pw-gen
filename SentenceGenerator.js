@@ -1,5 +1,5 @@
-import { cryptoRandomSource, randomInt } from './Random';
-import { declineAdjective, declineNoun, Wordlist } from './Wordlist';
+import { cryptoRandomSource, randomInt } from './Random.js';
+import { declineAdjective, declineNoun, Wordlist } from './Wordlist.js';
 /** All allowed separators */
 export const SEPARATORS = ['.', ',', ' ', '!', '$', '%'];
 /** All allowed trailing symbols (`''` means none) */
