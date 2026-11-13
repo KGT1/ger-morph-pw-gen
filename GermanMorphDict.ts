@@ -54,14 +54,30 @@ export interface WordEntry {
 
 /**
  * Progress information during dictionary loading
+ *
+ * @remarks
+ * When loading from a string, `totalLines`/`processedLines` count lines.
+ * When loading from a `Response`, they count bytes: `totalLines` is the
+ * `content-length` header and `processedLines` the number of (decoded) body
+ * bytes read so far.
  */
 export interface LoadProgress {
-    /** Total number of lines to process */
+    /** Total number of lines (string input) or bytes (Response input) to process */
     readonly totalLines: number;
-    /** Number of lines processed so far */
+    /** Number of lines (string input) or bytes (Response input) processed so far */
     readonly processedLines: number;
-    /** Percentage of completion (0-100) */
+    /**
+     * Percentage of completion (0-100). Only reaches 100 once loading has
+     * finished; intermediate values are clamped to at most 99.
+     */
     readonly percentage: number;
+    /**
+     * True if `percentage` is only a rough estimate. This is the case when the
+     * response uses a `content-encoding` other than `identity` (e.g. gzip):
+     * `content-length` is then the compressed size, while the body is read
+     * decompressed.
+     */
+    readonly approximate: boolean;
 }
 
 /**
@@ -83,6 +99,11 @@ export class GermanMorphDict {
     private readonly dictionary: Map<string, readonly WordEntry[]> = new Map();
     private totalEntries: number = 0;
     private readonly initialized: Promise<void>;
+
+    /** Word whose analysis lines are currently being parsed (kept across chunks) */
+    private currentWord: string | null = null;
+    /** Analyses collected so far for {@link currentWord} (kept across chunks) */
+    private currentAnalyses: MorphAnalysis[] = [];
 
     /**
      * Creates a new German morphological dictionary instance
@@ -128,14 +149,19 @@ export class GermanMorphDict {
         const decoder = new TextDecoder();
         let buffer = '';
         const totalBytes = Number(response.headers.get('content-length') || 0);
+        const encoding = (response.headers.get('content-encoding') || 'identity').trim().toLowerCase();
+        const approximate = encoding !== 'identity';
         let loadedBytes = 0;
 
         try {
             while (true) {
                 const {done, value} = await reader.read();
-                
+
                 if (done) {
-                    this.processChunk(buffer, true);
+                    // Flush any bytes the decoder still holds (incomplete multi-byte sequence)
+                    buffer += decoder.decode();
+                    this.processLines(buffer);
+                    this.flushCurrentWord();
                     break;
                 }
 
@@ -146,14 +172,15 @@ export class GermanMorphDict {
                 if (lastNewline !== -1) {
                     const completeLines = buffer.slice(0, lastNewline);
                     buffer = buffer.slice(lastNewline + 1);
-                    this.processChunk(completeLines, false);
+                    this.processLines(completeLines);
                 }
 
                 if (progressCallback && totalBytes > 0) {
                     progressCallback({
                         totalLines: totalBytes,
                         processedLines: loadedBytes,
-                        percentage: (loadedBytes / totalBytes) * 100
+                        percentage: Math.min(99, (loadedBytes / totalBytes) * 100),
+                        approximate
                     });
                 }
             }
@@ -161,8 +188,9 @@ export class GermanMorphDict {
             if (progressCallback) {
                 progressCallback({
                     totalLines: totalBytes,
-                    processedLines: totalBytes,
-                    percentage: 100
+                    processedLines: loadedBytes,
+                    percentage: 100,
+                    approximate
                 });
             }
         } catch (error) {
@@ -179,36 +207,40 @@ export class GermanMorphDict {
         dictData: string,
         progressCallback?: (progress: LoadProgress) => void
     ): void {
-        this.processChunk(dictData, true);
-        
+        this.processLines(dictData);
+        this.flushCurrentWord();
+
         const totalLines = dictData.split('\n').length;
         if (progressCallback) {
             progressCallback({
                 totalLines,
                 processedLines: totalLines,
-                percentage: 100
+                percentage: 100,
+                approximate: false
             });
         }
     }
 
     /**
-     * Processes a chunk of dictionary data
-     * @param chunk - String chunk of dictionary data
-     * @param isLastChunk - Whether this is the final chunk
+     * Processes complete lines of dictionary data.
+     *
+     * Parser state ({@link currentWord}, {@link currentAnalyses}) is kept on the
+     * instance, so a word whose analysis lines are split across several chunks
+     * is still assembled correctly. Call {@link flushCurrentWord} after the last
+     * chunk.
+     *
+     * @param chunk - One or more complete lines of dictionary data
      */
-    private processChunk(chunk: string, isLastChunk: boolean): void {
+    private processLines(chunk: string): void {
         const lines = chunk.split('\n');
-        let currentWord: string | null = null;
-        let currentAnalyses: MorphAnalysis[] = [];
 
         for (const line of lines) {
             const trimmedLine = line.trim();
             if (!trimmedLine) continue;
 
             if (!trimmedLine.includes(",")) {
-                this.addCurrentWordToDictionary(currentWord, currentAnalyses);
-                currentWord = trimmedLine;
-                currentAnalyses = [];
+                this.flushCurrentWord();
+                this.currentWord = trimmedLine;
             } else {
                 const parts = trimmedLine.split(" ");
                 if (parts.length < 2) continue;
@@ -225,17 +257,23 @@ export class GermanMorphDict {
                 const category = analysisParts[0];
                 if (!Object.values(WordCategory).includes(category as WordCategory)) continue;
 
-                currentAnalyses.push({
+                this.currentAnalyses.push({
                     lemma,
                     category: category as WordCategory,
                     attributes: analysisParts.slice(1)
                 });
             }
         }
+    }
 
-        if (isLastChunk) {
-            this.addCurrentWordToDictionary(currentWord, currentAnalyses);
-        }
+    /**
+     * Adds the word currently being parsed (if any) to the dictionary and
+     * resets the parser state
+     */
+    private flushCurrentWord(): void {
+        this.addCurrentWordToDictionary(this.currentWord, this.currentAnalyses);
+        this.currentWord = null;
+        this.currentAnalyses = [];
     }
 
     /**
@@ -262,13 +300,23 @@ export class GermanMorphDict {
      * @param regex - Optional regex pattern to filter words
      * @param categories - Optional array of word categories to filter by
      * @yields WordEntry objects matching the filter criteria
+     * @remarks
+     * Unlike {@link filterWords} this does not wait for loading to finish;
+     * call {@link waitForReady} first. Regexes with the `g` or `y` flag are
+     * supported (their `lastIndex` is reset before each word is tested).
      */
     *filterWordsGenerator(
         regex?: RegExp,
         categories?: readonly WordCategory[]
     ): Generator<WordEntry, void, unknown> {
         for (const [word, entries] of this.dictionary) {
-            if (regex && !regex.test(word)) continue;
+            if (regex) {
+                // A global (/g) or sticky (/y) regex keeps state in lastIndex
+                // between test() calls; reset it so every word is tested from
+                // the start.
+                regex.lastIndex = 0;
+                if (!regex.test(word)) continue;
+            }
             
             for (const entry of entries) {
                 if (!categories || categories.includes(entry.analysis.category)) {

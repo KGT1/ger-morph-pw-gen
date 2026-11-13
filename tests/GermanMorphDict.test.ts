@@ -1,4 +1,4 @@
-import { GermanMorphDict, WordCategory } from '../GermanMorphDict';
+import { FilterProgress, GermanMorphDict, LoadProgress, WordCategory } from '../GermanMorphDict';
 
 // Test data
 const testData = `
@@ -224,5 +224,190 @@ describe('GermanMorphDict', () => {
         const results = await dict.filterWords(/Zelt/);
         expect(results.length).toBe(2);
         expect(progressUpdates[progressUpdates.length - 1]).toBe(100);
+    });
+
+    describe('streaming', () => {
+        // Small dictionary with multi-byte UTF-8 characters and no trailing
+        // newline, so the last word is only terminated by the end of the stream.
+        const streamData =
+            'Würfel\nWürfel NN,masc,nom,sing\n\n' +
+            'Zelt\nZelt NN,neut,nom,sing\nZelt NN,masc,nom,sing\n\n' +
+            'berühmter\nberühmt ADJ,masc,nom,sing,pos,strong\n\n' +
+            'Straße\nStraße NN,fem,nom,sing';
+        const expectedWords = ['Straße', 'Würfel', 'Zelt', 'berühmter'];
+        const streamBytes = new TextEncoder().encode(streamData);
+
+        /** Builds a Response whose body is delivered as the given byte chunks */
+        const responseFromChunks = (
+            chunks: readonly Uint8Array[],
+            headers: Record<string, string> = {}
+        ): Response => {
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    for (const chunk of chunks) {
+                        controller.enqueue(chunk);
+                    }
+                    controller.close();
+                }
+            });
+            return new Response(stream, { headers });
+        };
+
+        const loadedWords = async (dict: GermanMorphDict): Promise<string[]> => {
+            const entries = await dict.getDictionary();
+            return [...new Set(entries.map(e => e.word))].sort();
+        };
+
+        it('should not lose any word when split at every possible byte boundary', async () => {
+            for (let i = 0; i <= streamBytes.length; i++) {
+                const dict = new GermanMorphDict(responseFromChunks([
+                    streamBytes.slice(0, i),
+                    streamBytes.slice(i)
+                ]));
+                expect({ split: i, words: await loadedWords(dict) })
+                    .toEqual({ split: i, words: expectedWords });
+                expect((await dict.filterWords(/^Zelt$/)).length).toBe(2);
+            }
+        });
+
+        it('should not lose any word when every byte is its own chunk', async () => {
+            const chunks = Array.from(streamBytes, (_, i) => streamBytes.slice(i, i + 1));
+            const dict = new GermanMorphDict(responseFromChunks(chunks));
+            expect(await loadedWords(dict)).toEqual(expectedWords);
+            const zelt = await dict.filterWords(/^Zelt$/);
+            expect(zelt.map(e => e.analysis.attributes[0]).sort()).toEqual(['masc', 'neut']);
+        });
+
+        it('should report exact, clamped progress for identity encoding', async () => {
+            const updates: LoadProgress[] = [];
+            const half = Math.floor(streamBytes.length / 2);
+            const dict = new GermanMorphDict(
+                responseFromChunks(
+                    [streamBytes.slice(0, half), streamBytes.slice(half)],
+                    // Deliberately too small to check clamping
+                    { 'content-length': String(half) }
+                ),
+                p => updates.push(p)
+            );
+            await dict.waitForReady();
+            expect(updates.length).toBe(3);
+            expect(updates.every(u => !u.approximate)).toBe(true);
+            expect(updates.every(u => u.percentage >= 0 && u.percentage <= 100)).toBe(true);
+            expect(updates[0]?.percentage).toBe(99);
+            expect(updates[1]?.percentage).toBe(99);
+            expect(updates[2]?.percentage).toBe(100);
+        });
+
+        it('should flag progress as approximate for compressed responses', async () => {
+            const updates: LoadProgress[] = [];
+            // content-length of a gzip response is the compressed size, which
+            // is smaller than the decoded body that is actually read.
+            const dict = new GermanMorphDict(
+                responseFromChunks([streamBytes], {
+                    'content-length': '10',
+                    'content-encoding': 'gzip'
+                }),
+                p => updates.push(p)
+            );
+            await dict.waitForReady();
+            expect(updates.length).toBeGreaterThan(0);
+            expect(updates.every(u => u.approximate)).toBe(true);
+            expect(Math.max(...updates.map(u => u.percentage))).toBe(100);
+            expect(updates[updates.length - 1]?.percentage).toBe(100);
+        });
+
+        it('should report completion without content-length', async () => {
+            const updates: LoadProgress[] = [];
+            const dict = new GermanMorphDict(responseFromChunks([streamBytes]), p => updates.push(p));
+            await dict.waitForReady();
+            expect(updates).toEqual([{
+                totalLines: 0,
+                processedLines: streamBytes.length,
+                percentage: 100,
+                approximate: false
+            }]);
+        });
+
+        it('should reject when the response body is null', async () => {
+            const dict = new GermanMorphDict(new Response(null));
+            await expect(dict.waitForReady()).rejects.toThrow('Response body is null');
+        });
+
+        it('should wrap stream errors', async () => {
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.error(new Error('network down'));
+                }
+            });
+            const dict = new GermanMorphDict(new Response(stream));
+            await expect(dict.waitForReady()).rejects.toThrow('Failed to load dictionary: network down');
+        });
+
+        it('should wrap non-Error stream failures', async () => {
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.error('boom');
+                }
+            });
+            const dict = new GermanMorphDict(new Response(stream));
+            await expect(dict.waitForReady()).rejects.toThrow('Failed to load dictionary: Unknown error');
+        });
+    });
+
+    describe('parsing', () => {
+        it('should keep the last word of a string without trailing newline', async () => {
+            const dict = new GermanMorphDict('Tisch\nTisch NN,masc,nom,sing');
+            expect((await dict.getDictionary()).map(e => e.word)).toEqual(['Tisch']);
+        });
+
+        it('should skip malformed analysis lines and unknown categories', async () => {
+            const dict = new GermanMorphDict([
+                'Tisch',
+                'Tisch,',
+                ' ,x',
+                'Tisch FOO,masc',
+                'Tisch NN,masc,nom,sing',
+                '',
+                'Leer',
+                'Leer XYZ,abc'
+            ].join('\n'));
+            const entries = await dict.getDictionary();
+            expect(entries.length).toBe(1);
+            expect(entries[0]?.analysis).toEqual({
+                lemma: 'Tisch',
+                category: WordCategory.NOUN,
+                attributes: ['masc', 'nom', 'sing']
+            });
+        });
+    });
+
+    describe('filterWordsGenerator', () => {
+        it('should match every word with a global regex', async () => {
+            const dict = new GermanMorphDict(testData);
+            await dict.waitForReady();
+            const global = [...dict.filterWordsGenerator(/^W/g, [WordCategory.NOUN])];
+            const plain = [...dict.filterWordsGenerator(/^W/, [WordCategory.NOUN])];
+            expect(plain.length).toBe(8); // 7 words, Wetter has two noun analyses
+            expect(global).toEqual(plain);
+        });
+
+        it('should match every word with a sticky regex', async () => {
+            const dict = new GermanMorphDict(testData);
+            const sticky = await dict.filterWords(/Z/y);
+            expect(new Set(sticky.map(e => e.word)).size).toBe(8);
+        });
+    });
+
+    it('should report filtering progress every 1000 entries', async () => {
+        const lines: string[] = [];
+        for (let i = 0; i < 2500; i++) {
+            lines.push(`Wort${i}`, `Wort${i} NN,neut,nom,sing`, '');
+        }
+        const dict = new GermanMorphDict(lines.join('\n'));
+        const updates: FilterProgress[] = [];
+        const result = await dict.filterWords(undefined, undefined, p => updates.push(p));
+        expect(result.length).toBe(2500);
+        expect(updates.map(u => u.processedEntries)).toEqual([1000, 2000, 2500]);
+        expect(updates.map(u => u.percentage)).toEqual([40, 80, 100]);
     });
 });
