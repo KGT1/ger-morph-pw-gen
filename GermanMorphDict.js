@@ -253,4 +253,3 @@ export class GermanMorphDict {
         return result;
     }
 }
-//# sourceMappingURL=GermanMorphDict.js.map

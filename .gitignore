@@ -4,9 +4,9 @@ node_modules/
 # Build outputs
 dist/
 build/
-# Keep GermanMorphDict.js and .d.ts
-!GermanMorphDict.js
-!GermanMorphDict.d.ts
+# Compiled .js/.d.ts next to the .ts sources are committed on purpose
+# (consumers install from GitHub); source maps are not.
+*.js.map
 
 # Environment files
 .env
