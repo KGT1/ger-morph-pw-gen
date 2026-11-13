@@ -1,4 +1,6 @@
 import { GermanMorphDict, WordCategory, WordEntry } from './GermanMorphDict';
+import { isLayoutSafeWord } from './LayoutSafety';
+import { cryptoRandomSource, randomChoice, randomInt, RandomSource } from './Random';
 
 /**
  * Password generation modes that determine the complexity and format of generated passwords
@@ -6,61 +8,73 @@ import { GermanMorphDict, WordCategory, WordEntry } from './GermanMorphDict';
 export enum PasswordMode {
     /** Simple mode generates passwords without special characters or numbers */
     SIMPLE = "simple",
-    /** Strong mode includes special character substitutions and numbers */
+    /**
+     * Strong mode includes a special character substitution and two digits.
+     * Only words made of layout-safe letters (a-x, A-X) that contain an
+     * S, s, I or i are used.
+     */
     STRONG = "strong"
 }
 
 /**
- * Configuration for special character substitutions in strong password mode
+ * Configuration for special character substitutions in strong password mode.
+ *
+ * Only layout-safe replacements are used (see LayoutSafety); `+` (for
+ * T/t) was removed because it sits on different keys on German QWERTZ and US
+ * QWERTY keyboards.
  */
 const SPECIAL_CHAR_MAP: Readonly<Record<string, string>> = {
     'S': '$', 's': '$',
-    'I': '!', 'i': '!',
-    'T': '+', 't': '+'
+    'I': '!', 'i': '!'
 } as const;
 
 /**
- * Characters that should be filtered out from strong passwords
+ * Adjective and noun surface forms for one grammatical gender
  */
-const STRONG_MODE_FILTERED_CHARS: ReadonlySet<string> = new Set([
-    'Ä', 'ä', 'Ö', 'ö', 'Ü', 'ü', 'ẞ', 'ß', 'Y', 'y', 'Z', 'z'
-]);
-
-/**
- * Interface for word groups organized by grammatical gender
- */
-interface GenderedWords {
-    adjByGender: Record<string, WordEntry[]>;
-    nounsByGender: Record<string, WordEntry[]>;
+interface GenderPool {
+    readonly gender: Gender;
+    /** Distinct adjective forms agreeing with the gender */
+    readonly adjectives: readonly string[];
+    /** Distinct noun forms of the gender */
+    readonly nouns: readonly string[];
 }
 
+/** Grammatical genders as used in the dictionary attributes */
+type Gender = 'masc' | 'fem' | 'neut';
+
+const GENDERS: readonly Gender[] = ['masc', 'fem', 'neut'];
+
+/** Word pools per gender for each password mode */
+type PoolsByMode = Readonly<Record<PasswordMode, readonly GenderPool[]>>;
+
 /**
- * Generates secure passwords using German morphological word combinations
+ * Generates passwords using German adjective-noun combinations from a
+ * morphological dictionary (e.g. `aktiverTisch`, `starke$Tasse42`).
+ *
+ * @remarks
+ * Legacy API, kept for backwards compatibility. New code should use
+ * {@link SentenceGenerator}, which produces longer, keyboard-layout-safe
+ * passphrases with a documented strength estimate. Note that
+ * {@link PasswordMode.SIMPLE} passwords may contain umlauts and `ß`, which
+ * cannot be typed on non-German keyboards.
+ *
+ * All randomness comes from `globalThis.crypto.getRandomValues` (or the
+ * injected random source). The adjective-noun pair is chosen uniformly among
+ * all distinct pairs of the selected mode.
  */
 export class PasswordGenerator {
     private readonly dict: GermanMorphDict;
+    private readonly rng: RandomSource;
+    private pools: Promise<PoolsByMode> | null = null;
 
     /**
      * Creates a new password generator instance
      * @param dict - German morphological dictionary instance
+     * @param rng - Random source (default: Web Crypto); inject only for tests
      */
-    constructor(dict: GermanMorphDict) {
+    constructor(dict: GermanMorphDict, rng: RandomSource = cryptoRandomSource) {
         this.dict = dict;
-    }
-
-    /**
-     * Gets a random item from an array
-     * @param arr - Array to select from
-     * @returns Random item from the array
-     * @throws Error if array is empty
-     */
-    private getRandomItem<T>(arr: readonly T[]): T {
-        if (!arr.length) {
-            throw new Error('Cannot get random item from empty array');
-        }
-        const index = Math.floor(Math.random() * arr.length);
-        // This assertion is safe because we checked arr.length > 0
-        return arr[index]!;
+        this.rng = rng;
     }
 
     /**
@@ -70,16 +84,32 @@ export class PasswordGenerator {
      */
     private getRandomDigits(length: number): string {
         return Array.from(
-            { length }, 
-            () => Math.floor(Math.random() * 10)
+            { length },
+            () => randomInt(10, this.rng)
         ).join('');
     }
 
     /**
-     * Retrieves and filters words from the dictionary based on grammatical criteria
-     * @returns Promise resolving to filtered adjectives and nouns grouped by gender
+     * Returns the word pools per mode and gender, computing them once per
+     * instance (the dictionary does not change after loading)
+     * @returns Promise resolving to the pools for every mode
      */
-    private async getFilteredWords(): Promise<GenderedWords> {
+    private getPools(): Promise<PoolsByMode> {
+        if (!this.pools) {
+            this.pools = this.computePools().catch((error: unknown) => {
+                // Do not cache failures, e.g. a dictionary that failed to load
+                this.pools = null;
+                throw error;
+            });
+        }
+        return this.pools;
+    }
+
+    /**
+     * Retrieves and filters words from the dictionary based on grammatical criteria
+     * @returns Promise resolving to the deduplicated word pools for every mode
+     */
+    private async computePools(): Promise<PoolsByMode> {
         // Get nouns (nominative singular)
         const nouns = await this.dict.filterWords(undefined, [WordCategory.NOUN]);
         const nomSingNouns = nouns.filter(entry =>
@@ -95,75 +125,46 @@ export class PasswordGenerator {
             entry.analysis.attributes.includes('sing')
         );
 
-        // Group nouns by gender
-        const nounsByGender: Record<string, WordEntry[]> = {
-            masc: nomSingNouns.filter(n => n.analysis.attributes.includes('masc')),
-            fem: nomSingNouns.filter(n => n.analysis.attributes.includes('fem')),
-            neut: nomSingNouns.filter(n => n.analysis.attributes.includes('neut'))
-        };
+        const simple: GenderPool[] = GENDERS.map(gender => ({
+            gender,
+            nouns: uniqueWords(nomSingNouns.filter(n => n.analysis.attributes.includes(gender))),
+            // Require strong declension for masculine and neuter (-er/-es);
+            // feminine strong and weak forms are identical (-e)
+            adjectives: uniqueWords(baseFilteredAdj.filter(a =>
+                a.analysis.attributes.includes(gender) &&
+                (gender === 'fem' || a.analysis.attributes.includes('strong'))
+            ))
+        }));
 
-        // For adjectives, require strong declension for masculine and neuter
-        const adjByGender: Record<string, WordEntry[]> = {
-            masc: baseFilteredAdj.filter(a => 
-                a.analysis.attributes.includes('masc') &&
-                a.analysis.attributes.includes('strong')
-            ),
-            fem: baseFilteredAdj.filter(a => a.analysis.attributes.includes('fem')),
-            neut: baseFilteredAdj.filter(a => 
-                a.analysis.attributes.includes('neut') &&
-                a.analysis.attributes.includes('strong')
-            )
-        };
+        const strong: GenderPool[] = simple.map(pool => ({
+            gender: pool.gender,
+            adjectives: pool.adjectives.filter(isStrongModeWord),
+            nouns: pool.nouns.filter(isStrongModeWord)
+        }));
 
-        return { adjByGender, nounsByGender };
+        return { [PasswordMode.SIMPLE]: simple, [PasswordMode.STRONG]: strong };
     }
 
     /**
-     * Filters words to ensure they meet strong password criteria
-     * @param words - Array of word entries to filter
-     * @returns Filtered array of word entries suitable for strong passwords
-     */
-    private filterStrongWords(words: ReadonlyArray<WordEntry>): WordEntry[] {
-        return words.filter(entry => {
-            const word = entry.word;
-            
-            // Filter out words with special characters in strong mode
-            if ([...STRONG_MODE_FILTERED_CHARS].some(char => word.includes(char))) {
-                return false;
-            }
-
-            // Must contain at least one character that can be replaced with a special character
-            return Object.keys(SPECIAL_CHAR_MAP).some(char => word.includes(char));
-        });
-    }
-
-    /**
-     * Gets filtered words based on the password mode
-     * @param words - Array of word entries to filter
-     * @param mode - Password generation mode
-     * @returns Filtered array of word entries
-     */
-    private getWordsByMode(words: ReadonlyArray<WordEntry>, mode: PasswordMode): WordEntry[] {
-        if (mode === PasswordMode.STRONG) {
-            return this.filterStrongWords(words);
-        }
-        return [...words];
-    }
-
-    /**
-     * Replaces a random eligible character with its special character equivalent
+     * Replaces the character at a random eligible position with its special
+     * character equivalent
      * @param word - Word to process
      * @returns Word with one special character substitution
      */
     private replaceSpecialChar(word: string): string {
-        const eligibleChars = word.match(/[SsIiTt]/g);
-        if (!eligibleChars) return word;
-        
-        const charToReplace = this.getRandomItem(eligibleChars);
-        const replacement = SPECIAL_CHAR_MAP[charToReplace as keyof typeof SPECIAL_CHAR_MAP];
-        
+        const positions: number[] = [];
+        for (let i = 0; i < word.length; i++) {
+            if (Object.prototype.hasOwnProperty.call(SPECIAL_CHAR_MAP, word.charAt(i))) {
+                positions.push(i);
+            }
+        }
+        if (!positions.length) return word;
+
+        const position = randomChoice(positions, this.rng);
+        const replacement = SPECIAL_CHAR_MAP[word.charAt(position)];
         if (!replacement) return word;
-        return word.replace(charToReplace, replacement);
+
+        return word.slice(0, position) + replacement + word.slice(position + 1);
     }
 
     /**
@@ -173,26 +174,28 @@ export class PasswordGenerator {
      * @throws Error if no valid words are found or if word filtering fails
      */
     async generatePassword(mode: PasswordMode): Promise<string> {
-        const { adjByGender, nounsByGender } = await this.getFilteredWords();
-        const gender = this.getRandomItem(['masc', 'fem', 'neut']);
-        
-        let adjectives = adjByGender[gender];
-        let nouns = nounsByGender[gender];
+        const pools = (await this.getPools())[mode];
 
-        if (!adjectives?.length || !nouns?.length) {
-            throw new Error(`No valid words found for gender: ${gender}`);
+        // Choose a gender weighted by its number of adjective-noun pairs, so
+        // every distinct pair is equally likely
+        const pairCounts = pools.map(pool => pool.adjectives.length * pool.nouns.length);
+        const totalPairs = pairCounts.reduce((sum, count) => sum + count, 0);
+        if (totalPairs === 0) {
+            throw new Error(`No valid adjective-noun pairs found in ${mode} mode`);
         }
 
-        adjectives = this.getWordsByMode(adjectives, mode);
-        nouns = this.getWordsByMode(nouns, mode);
-
-        if (!adjectives.length || !nouns.length) {
-            throw new Error(`No valid words found for gender: ${gender} in ${mode} mode`);
+        let pick = randomInt(totalPairs, this.rng);
+        let poolIndex = 0;
+        while (pick >= pairCounts[poolIndex]!) {
+            pick -= pairCounts[poolIndex]!;
+            poolIndex++;
         }
+        const pool = pools[poolIndex]!;
 
-        const adj = this.getRandomItem(adjectives);
-        const noun = this.getRandomItem(nouns);
-        let password = adj.word + noun.word;
+        // pick is uniform in [0, adjectives * nouns) of this pool
+        const adj = pool.adjectives[Math.floor(pick / pool.nouns.length)]!;
+        const noun = pool.nouns[pick % pool.nouns.length]!;
+        let password = adj + noun;
 
         if (mode === PasswordMode.STRONG) {
             password = this.replaceSpecialChar(password);
@@ -235,4 +238,25 @@ export class PasswordGenerator {
 
         return passwords;
     }
+}
+
+/**
+ * Returns the distinct surface forms of the given entries, in order of first
+ * occurrence (a word with several analyses would otherwise be over-weighted)
+ * @param entries - Word entries
+ * @returns Distinct words
+ */
+function uniqueWords(entries: readonly WordEntry[]): string[] {
+    return [...new Set(entries.map(entry => entry.word))];
+}
+
+/**
+ * Checks whether a word is eligible for strong mode: only layout-safe letters
+ * and at least one character that can be replaced by a special character
+ * @param word - Word to check
+ * @returns True if the word can be used in strong mode
+ */
+function isStrongModeWord(word: string): boolean {
+    return isLayoutSafeWord(word) &&
+        Object.keys(SPECIAL_CHAR_MAP).some(char => word.includes(char));
 }

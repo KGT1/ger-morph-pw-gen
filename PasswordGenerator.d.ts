@@ -1,30 +1,43 @@
 import { GermanMorphDict } from './GermanMorphDict';
+import { RandomSource } from './Random';
 /**
  * Password generation modes that determine the complexity and format of generated passwords
  */
 export declare enum PasswordMode {
     /** Simple mode generates passwords without special characters or numbers */
     SIMPLE = "simple",
-    /** Strong mode includes special character substitutions and numbers */
+    /**
+     * Strong mode includes a special character substitution and two digits.
+     * Only words made of layout-safe letters (a-x, A-X) that contain an
+     * S, s, I or i are used.
+     */
     STRONG = "strong"
 }
 /**
- * Generates secure passwords using German morphological word combinations
+ * Generates passwords using German adjective-noun combinations from a
+ * morphological dictionary (e.g. `aktiverTisch`, `starke$Tasse42`).
+ *
+ * @remarks
+ * Legacy API, kept for backwards compatibility. New code should use
+ * {@link SentenceGenerator}, which produces longer, keyboard-layout-safe
+ * passphrases with a documented strength estimate. Note that
+ * {@link PasswordMode.SIMPLE} passwords may contain umlauts and `ß`, which
+ * cannot be typed on non-German keyboards.
+ *
+ * All randomness comes from `globalThis.crypto.getRandomValues` (or the
+ * injected random source). The adjective-noun pair is chosen uniformly among
+ * all distinct pairs of the selected mode.
  */
 export declare class PasswordGenerator {
     private readonly dict;
+    private readonly rng;
+    private pools;
     /**
      * Creates a new password generator instance
      * @param dict - German morphological dictionary instance
+     * @param rng - Random source (default: Web Crypto); inject only for tests
      */
-    constructor(dict: GermanMorphDict);
-    /**
-     * Gets a random item from an array
-     * @param arr - Array to select from
-     * @returns Random item from the array
-     * @throws Error if array is empty
-     */
-    private getRandomItem;
+    constructor(dict: GermanMorphDict, rng?: RandomSource);
     /**
      * Generates a string of random digits
      * @param length - Number of digits to generate
@@ -32,25 +45,19 @@ export declare class PasswordGenerator {
      */
     private getRandomDigits;
     /**
+     * Returns the word pools per mode and gender, computing them once per
+     * instance (the dictionary does not change after loading)
+     * @returns Promise resolving to the pools for every mode
+     */
+    private getPools;
+    /**
      * Retrieves and filters words from the dictionary based on grammatical criteria
-     * @returns Promise resolving to filtered adjectives and nouns grouped by gender
+     * @returns Promise resolving to the deduplicated word pools for every mode
      */
-    private getFilteredWords;
+    private computePools;
     /**
-     * Filters words to ensure they meet strong password criteria
-     * @param words - Array of word entries to filter
-     * @returns Filtered array of word entries suitable for strong passwords
-     */
-    private filterStrongWords;
-    /**
-     * Gets filtered words based on the password mode
-     * @param words - Array of word entries to filter
-     * @param mode - Password generation mode
-     * @returns Filtered array of word entries
-     */
-    private getWordsByMode;
-    /**
-     * Replaces a random eligible character with its special character equivalent
+     * Replaces the character at a random eligible position with its special
+     * character equivalent
      * @param word - Word to process
      * @returns Word with one special character substitution
      */
