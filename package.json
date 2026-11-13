@@ -1,9 +1,21 @@
 {
   "name": "ger-morph-pw-gen",
   "version": "1.0.0",
-  "description": "German morphological password generator that creates secure passwords using adjective-noun combinations",
-  "main": "GermanMorphDict.js",
-  "types": "GermanMorphDict.d.ts",
+  "description": "Memorable, keyboard-layout-safe German passphrases (e.g. flinkerFuchs.malt.leise.roteTomate.42!) with exact strength estimates",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json",
+    "./*": {
+      "types": "./*.d.ts",
+      "default": "./*.js"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
@@ -11,17 +23,22 @@
   },
   "keywords": [
     "password",
+    "passphrase",
     "generator",
     "german",
     "morphology",
     "security"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {
     "@types/jest": "^29.5.11",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.1",
     "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KGT1/ger-morph-pw-gen.git"
   }
 }

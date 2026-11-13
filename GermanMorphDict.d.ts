@@ -51,14 +51,30 @@ export interface WordEntry {
 }
 /**
  * Progress information during dictionary loading
+ *
+ * @remarks
+ * When loading from a string, `totalLines`/`processedLines` count lines.
+ * When loading from a `Response`, they count bytes: `totalLines` is the
+ * `content-length` header and `processedLines` the number of (decoded) body
+ * bytes read so far.
  */
 export interface LoadProgress {
-    /** Total number of lines to process */
+    /** Total number of lines (string input) or bytes (Response input) to process */
     readonly totalLines: number;
-    /** Number of lines processed so far */
+    /** Number of lines (string input) or bytes (Response input) processed so far */
     readonly processedLines: number;
-    /** Percentage of completion (0-100) */
+    /**
+     * Percentage of completion (0-100). Only reaches 100 once loading has
+     * finished; intermediate values are clamped to at most 99.
+     */
     readonly percentage: number;
+    /**
+     * True if `percentage` is only a rough estimate. This is the case when the
+     * response uses a `content-encoding` other than `identity` (e.g. gzip):
+     * `content-length` is then the compressed size, while the body is read
+     * decompressed.
+     */
+    readonly approximate: boolean;
 }
 /**
  * Progress information during word filtering
@@ -78,6 +94,10 @@ export declare class GermanMorphDict {
     private readonly dictionary;
     private totalEntries;
     private readonly initialized;
+    /** Word whose analysis lines are currently being parsed (kept across chunks) */
+    private currentWord;
+    /** Analyses collected so far for {@link currentWord} (kept across chunks) */
+    private currentAnalyses;
     /**
      * Creates a new German morphological dictionary instance
      * @param dictData - Dictionary data as string or Response object
@@ -103,11 +123,21 @@ export declare class GermanMorphDict {
      */
     private loadDict;
     /**
-     * Processes a chunk of dictionary data
-     * @param chunk - String chunk of dictionary data
-     * @param isLastChunk - Whether this is the final chunk
+     * Processes complete lines of dictionary data.
+     *
+     * Parser state ({@link currentWord}, {@link currentAnalyses}) is kept on the
+     * instance, so a word whose analysis lines are split across several chunks
+     * is still assembled correctly. Call {@link flushCurrentWord} after the last
+     * chunk.
+     *
+     * @param chunk - One or more complete lines of dictionary data
      */
-    private processChunk;
+    private processLines;
+    /**
+     * Adds the word currently being parsed (if any) to the dictionary and
+     * resets the parser state
+     */
+    private flushCurrentWord;
     /**
      * Adds a word and its analyses to the dictionary
      * @param currentWord - Word to add
@@ -119,6 +149,10 @@ export declare class GermanMorphDict {
      * @param regex - Optional regex pattern to filter words
      * @param categories - Optional array of word categories to filter by
      * @yields WordEntry objects matching the filter criteria
+     * @remarks
+     * Unlike {@link filterWords} this does not wait for loading to finish;
+     * call {@link waitForReady} first. Regexes with the `g` or `y` flag are
+     * supported (their `lastIndex` is reset before each word is tested).
      */
     filterWordsGenerator(regex?: RegExp, categories?: readonly WordCategory[]): Generator<WordEntry, void, unknown>;
     /**
